@@ -1,0 +1,1428 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Sales Mix Analyzer — HTML/JS</title>
+
+  <!-- Dependencias -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.24.2.min.js"></script>
+
+  <style>
+    :root{--accent:#0b74ff}
+    body{
+      font-family:system-ui,Segoe UI,Arial;
+      max-width:1200px;
+      margin:18px auto;
+      padding:12px;
+      color:#111;
+      background:#f7f7f7;
+    }
+    .app-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:16px;
+      margin-bottom:8px;
+    }
+    h1{
+      margin:0;
+      font-size:32px;
+      font-weight:800;
+    }
+    .subtitle{
+      margin:4px 0 0;
+      font-size:13px;
+      color:#777;
+    }
+    #fileInput{
+      padding:6px 14px;
+      border-radius:999px;
+      border:1px solid #d0d0d0;
+      font-size:13px;
+      background:#fff;
+      cursor:pointer;
+    }
+    .box{
+      border:1px solid #e6e6e6;
+      padding:12px;
+      border-radius:10px;
+      background:#fff;
+    }
+    .uploader-box{
+      margin-top:4px;
+    }
+    .uploader-top-row{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+    }
+    .file-label{
+      font-weight:600;
+    }
+    select,input,button{
+      padding:8px;
+      border:1px solid #d0d0d0;
+      border-radius:6px;
+      font-size:14px;
+      background:#fff;
+    }
+    button{
+      cursor:pointer;
+    }
+    .btn-primary{
+      background:var(--accent);
+      color:#fff;
+      border-color:var(--accent);
+      font-weight:500;
+    }
+    .btn-primary:hover{
+      background:#0759c4;
+      border-color:#0759c4;
+    }
+    .btn-ghost{
+      background:transparent;
+      border-color:#ddd;
+      color:#444;
+    }
+    .btn-ghost:hover{
+      background:#f3f3f3;
+    }
+    .chart{
+      margin-top:12px;
+      border-radius:10px;
+      padding:8px;
+      border:1px solid #efefef;
+      background:#fafafa;
+    }
+    table{
+      border-collapse:collapse;
+      width:100%;
+      font-size:13px;
+    }
+    th,td{
+      border:1px solid #eee;
+      padding:6px;
+      text-align:left;
+    }
+    .kpis{
+      display:flex;
+      gap:12px;
+      margin-top:12px;
+      flex-wrap:wrap;
+    }
+    .kpi{
+      padding:12px;
+      border-radius:10px;
+      border:1px solid #eee;
+      background:#fff;
+      min-width:170px;
+      text-align:center;
+    }
+    .small{
+      font-size:13px;
+      color:#666;
+    }
+    #main.hidden{
+      display:none;
+    }
+    .actions-row{
+      margin-top:10px;
+      display:flex;
+      gap:8px;
+      justify-content:flex-end;
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>Sales Mix Analyzer</h1>
+      <p class="subtitle">Sube .xlsx/.xls/.csv y haz clic en “Procesar análisis”.</p>
+    </div>
+    <div>
+      <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+    </div>
+  </header>
+
+  <!-- Uploader + preview sencillo -->
+  <section id="uploaderArea" class="box uploader-box">
+    <div class="uploader-top-row">
+      <div>
+        <span class="file-label">Archivo:</span>
+        <span id="fileInfo">Ninguno</span>
+        <div id="sheetSelectorWrap" style="margin-top:4px;"></div>
+      </div>
+    </div>
+
+    <div id="previewHead" style="margin-top:8px"></div>
+
+    <div class="actions-row">
+      <button id="processBtn" class="btn-primary">Procesar análisis</button>
+    </div>
+  </section>
+
+  <main id="main" class="hidden">
+    <!-- KPIs -->
+    <div class="kpis">
+      <div class="kpi">
+        <div class="small">Unidades último mes</div>
+        <div id="kpiUnits" style="font-size:20px">—</div>
+      </div>
+      <div class="kpi">
+        <div class="small">Δ unidades vs mes previo</div>
+        <div id="kpiDelta" style="font-size:20px">—</div>
+      </div>
+      <div class="kpi">
+        <div class="small">Crecimiento MoM %</div>
+        <div id="kpiMoM" style="font-size:20px">—</div>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
+      <div class="small">Filtros:</div>
+      <div>
+        <label class="small">Segmentos</label>
+        <select id="segFilter" multiple style="min-width:140px;height:36px">
+          <option value="B" selected>B</option>
+          <option value="C" selected>C</option>
+          <option value="D" selected>D</option>
+          <option value="E" selected>E</option>
+        </select>
+      </div>
+      <div>
+        <label class="small">Marcas (opcional)</label>
+        <select id="marcaFilter" multiple style="min-width:220px;height:36px"></select>
+      </div>
+      <div>
+        <label class="small">Modelos (opcional)</label>
+        <select id="modeloFilter" multiple style="min-width:220px;height:36px"></select>
+      </div>
+    </div>
+
+    <!-- TODO CORRIDO: una sección debajo de la otra -->
+
+    <!-- Ventas por mes -->
+    <section class="chart">
+      <h3>Ventas totales por mes</h3>
+      <div id="chart_sales_by_month" style="height:380px"></div>
+      <hr />
+      <h4>Top modelos por volumen — último mes</h4>
+      <div id="topModelsLast"></div>
+    </section>
+
+    <!-- Crecimiento MoM -->
+    <section class="chart">
+      <h3>Crecimiento mes a mes por modelo</h3>
+
+      <div style="margin-bottom:8px">
+        <label class="small">Filtrar heatmap por marca</label>
+        <select id="heatmapBrand" style="min-width:220px">
+          <option value="">Todas las marcas</option>
+        </select>
+      </div>
+
+      <div id="chart_mom_heatmap" style="height:420px"></div>
+      <hr />
+      <div id="topMovers"></div>
+    </section>
+
+    <!-- Mix por segmento y modelo -->
+    <section class="chart">
+      <h3>Participación por segmento → marca → modelo (último mes)</h3>
+      <div id="mixSegmentChart" style="height:360px"></div>
+      <hr />
+      <label class="small">Elige un modelo</label>
+      <select id="modelForVersions"></select>
+      <div style="margin-top:6px">
+        <label class="small">Periodo</label>
+        <select id="versionsPeriod" style="min-width:200px">
+          <option value="last" selected>Último mes</option>
+          <option value="ytd">YTD (suma de todos los meses)</option>
+        </select>
+      </div>
+      <div id="versionsPie" style="height:340px" class="chart"></div>
+    </section>
+
+    <!-- Detalle por modelo / versión -->
+    <section class="chart">
+      <h3>Evolución de ventas por modelo y versión</h3>
+      <label class="small">Selecciona un modelo</label>
+      <select id="modelEvolution"></select>
+      <div id="evolModel" style="height:360px" class="chart"></div>
+      <hr />
+      <div id="evolVersionsArea"></div>
+    </section>
+
+    <!-- Volvo vs competidores -->
+    <section class="chart">
+      <h3>Volvo vs competidores — Total YTD</h3>
+      <div class="small" style="margin-top:-6px;margin-bottom:10px">
+        Esta sección usa el <b>total acumulado YTD</b> (suma de todos los meses) y <b>todos los segmentos</b>
+      </div>
+      <label class="small">Elige competidores</label>
+      <select id="competitors" multiple style="width:100%;height:90px"></select>
+      <div id="compChart" style="height:420px"></div>
+      <div id="compChartTable" style="margin-top:10px"></div>
+    </section>
+
+    <!-- Volvo benchmark -->
+    <section class="chart">
+      <h3>Volvo benchmark</h3>
+      <div id="volvoKpis" class="kpis"></div>
+
+      <div class="chart">
+        <h4>Unidades Volvo por mes (todas las SUV)</h4>
+        <div id="volvoTotalChart" style="height:320px"></div>
+      </div>
+
+      <div class="chart">
+        <h4>Mix de modelos Volvo por segmento (último mes)</h4>
+        <div id="volvoSegmentModelChart" style="height:360px"></div>
+      </div>
+
+      <div class="chart">
+        <h4>Crecimiento MoM % por modelo Volvo (último mes)</h4>
+        <div id="volvoModelMoM" style="height:320px"></div>
+      </div>
+
+      <div class="chart">
+        <h4>Tabla detalle modelos Volvo (último mes)</h4>
+        <div id="volvoTable"></div>
+      </div>
+    </section>
+
+    <!-- Descargas -->
+    <section style="margin-top:12px;display:flex;gap:8px;align-items:center">
+      <button id="downloadExcel" class="box btn-ghost" style="padding:8px 12px">💾 Descargar Excel</button>
+      <button id="downloadCSV" class="box btn-ghost" style="padding:8px 12px">⬇️ Descargar CSV</button>
+    </section>
+
+    <div id="insights" style="margin-top:12px"></div>
+  </main>
+
+<script>
+/* ------------------ Utilidades ------------------ */
+const MONTH_ALIASES = {
+  "ene":1,"enero":1,"feb":2,"febrero":2,"mar":3,"marzo":3,"abr":4,"abril":4,"may":5,"mayo":5,"jun":6,"junio":6,
+  "jul":7,"julio":7,"ago":8,"agosto":8,"sep":9,"sept":9,"septiembre":9,"oct":10,"octubre":10,"nov":11,"noviembre":11,"dic":12,"diciembre":12,
+  "jan":1,"january":1,"february":2,"march":3,"apr":4,"april":4,"may":5,"jun":6,"june":6,"jul":7,"july":7,"aug":8,"august":8,"sep":9,"september":9,"oct":10,"october":10,"november":11,"dec":12,"december":12
+};
+const SEGMENT_PAT = /s\s*uv\s*[-_ ]*([bcde])|^([bcde])$/i;
+const DATE_PAT = /^(20\d{2})[-_\.\/ ]?(0?[1-9]|1[0-2])$/;
+
+/* PALETA GENERAL POR MARCA */
+const DEFAULT_BRAND_COLOR = "#888888";
+const BRAND_PALETTE = [
+  "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+  "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+  "#bcbd22", "#17becf", "#4c72b0", "#dd8452",
+  "#55a868", "#c44e52", "#8172b3", "#937860",
+  "#da8bc3", "#8c8c8c"
+];
+const BRAND_COLORS = {};
+
+/* PALETA VOLVO BENCHMARK */
+const VOLVO_COLOR_MAIN = "#1f77b4";
+const VOLVO_COLOR_MOM  = "#2ca02c";
+const VOLVO_PALETTE = [
+  "#1f77b4","#ff7f0e","#2ca02c","#d62728",
+  "#9467bd","#8c564b","#e377c2","#bcbd22",
+  "#17becf","#7f7f7f"
+];
+
+function normalizeSegment(val) {
+  if (val === null || val === undefined) return null;
+  const s = String(val).trim();
+  const m = s.match(SEGMENT_PAT);
+  if (m) return (m[1] || m[2]).toUpperCase();
+  return null;
+}
+
+function detect_month_columns(headers) {
+  const month_cols = [];
+  headers.forEach(col => {
+    const s = String(col).trim();
+    const s_l = s.toLowerCase();
+    if (DATE_PAT.test(s_l)) { month_cols.push(col); return; }
+    const tokens = s_l.split(/[^a-z0-9áéíóúñ]+/).filter(Boolean);
+    if (tokens.some(t=> t in MONTH_ALIASES)) { month_cols.push(col); return; }
+    if (/^\d+$/.test(s_l)) {
+      const v = Number(s_l);
+      if (v>=1 && v<=12) { month_cols.push(col); return; }
+    }
+  });
+  function month_key(c) {
+    const s = String(c).trim().toLowerCase();
+    const m = s.match(DATE_PAT);
+    if (m) return (Number(m[1])*100 + Number(m[2]));
+    for (const k in MONTH_ALIASES) if (s.includes(k)) return (999900 + MONTH_ALIASES[k]);
+    if (/^\d+$/.test(s)) return 999900 + Number(s);
+    return 999999;
+  }
+  return month_cols.sort((a,b) => month_key(a) - month_key(b));
+}
+
+function parse_month_label(s) {
+  const ss = String(s).trim().toLowerCase();
+  const m = ss.match(DATE_PAT);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, 1);
+  const tokens = ss.split(/[^a-z0-9]+/).filter(Boolean);
+  let year = null, mo = null;
+  tokens.forEach(t => {
+    if (MONTH_ALIASES[t] && mo === null) mo = MONTH_ALIASES[t];
+    if (/^20\d{2}$/.test(t) && year === null) year = Number(t);
+  });
+  if (mo !== null && year !== null) return new Date(year, mo - 1, 1);
+  if (mo !== null && year === null) return new Date(2025, mo - 1, 1);
+  if (/^\d+$/.test(ss)) {
+    const v = Number(ss);
+    if (v>=1 && v<=12) return new Date(2025, v-1, 1);
+  }
+  return null;
+}
+
+function formatMonthLabel(dateObj) {
+  return dateObj.toLocaleDateString('es-MX', { month:'short', year:'2-digit' });
+}
+
+function buildBrandColorMap(data) {
+  for (const k in BRAND_COLORS) delete BRAND_COLORS[k];
+  const marcas = Array.from(new Set(data.map(r => r.Marca || "(Sin marca)"))).sort();
+  let idx = 0;
+  marcas.forEach(m => {
+    if (!m || m === "(Sin marca)") {
+      BRAND_COLORS[m] = DEFAULT_BRAND_COLOR;
+    } else {
+      BRAND_COLORS[m] = BRAND_PALETTE[idx % BRAND_PALETTE.length];
+      idx++;
+    }
+  });
+}
+function getBrandColor(marca) {
+  const key = marca || "(Sin marca)";
+  return BRAND_COLORS[key] || DEFAULT_BRAND_COLOR;
+}
+
+/* ----------- Tonos por versión ----------- */
+function hexToHSL(H){
+  let r = 0, g = 0, b = 0;
+  H = H.replace('#','');
+  if (H.length === 3){
+    r = "0x" + H[0] + H[0];
+    g = "0x" + H[1] + H[1];
+    b = "0x" + H[2] + H[2];
+  } else if (H.length === 6){
+    r = "0x" + H[0] + H[0+1];
+    g = "0x" + H[2] + H[2+1];
+    b = "0x" + H[4] + H[4+1];
+  }
+  r = parseInt(r,16)/255; g = parseInt(g,16)/255; b = parseInt(b,16)/255;
+  const cmin = Math.min(r,g,b),
+        cmax = Math.max(r,g,b),
+        delta = cmax - cmin;
+  let h = 0, s = 0, l = 0;
+  if (delta === 0) h = 0;
+  else if (cmax === r) h = ((g - b) / delta) % 6;
+  else if (cmax === g) h = (b - r) / delta + 2;
+  else h = (r - g) / delta + 4;
+  h = Math.round(h * 60);
+  if (h < 0) h += 360;
+  l = (cmax + cmin) / 2;
+  s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+  s = +(s * 100).toFixed(1);
+  l = +(l * 100).toFixed(1);
+  return {h, s, l};
+}
+function hslToHex(h,s,l){
+  s /= 100;
+  l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const color = l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return Math.round(255 * color);
+  };
+  const r = f(0), g = f(8), b = f(4);
+  return "#" + [r,g,b].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+function generateShades(baseHex, n){
+  const shades = [];
+  if (!n || n <= 0) return shades;
+  const base = hexToHSL(baseHex || DEFAULT_BRAND_COLOR);
+  const startL = Math.max(20, base.l - 20);
+  const endL   = Math.min(80, base.l + 20);
+  for (let i=0;i<n;i++){
+    const li = n===1 ? base.l : startL + (endL-startL)*(i/(n-1));
+    shades.push(hslToHex(base.h, base.s, li));
+  }
+  return shades;
+}
+
+/* ------------------ Lectura archivo ------------------ */
+let rawRows = null;
+let headers = [];
+let currentSheetName = null;
+let workbookGlobal = null;
+let autoConfig = null;
+
+const fileInput = document.getElementById("fileInput");
+const fileInfo = document.getElementById("fileInfo");
+const previewHead = document.getElementById("previewHead");
+const sheetSelectorWrap = document.getElementById("sheetSelectorWrap");
+const processBtn = document.getElementById("processBtn");
+
+fileInput.addEventListener("change", async (ev) => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  fileInfo.textContent = `${f.name} — ${Math.round(f.size/1024)} KB`;
+  const name = f.name.toLowerCase();
+  if (name.endsWith(".csv")) {
+    const txt = await f.text();
+    const res = Papa.parse(txt, { header: true, skipEmptyLines: true });
+    rawRows = res.data;
+    headers = res.meta.fields || (rawRows[0] ? Object.keys(rawRows[0]) : []);
+    currentSheetName = null;
+    workbookGlobal = null;
+    sheetSelectorWrap.innerHTML = "";
+    renderPreview();
+  } else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    const ab = await f.arrayBuffer();
+    const wb = XLSX.read(ab, { type: "array" });
+    workbookGlobal = wb;
+    const sheetNames = wb.SheetNames;
+    if (sheetNames.length > 1) {
+      const sel = document.createElement("select");
+      sel.id = "sheetSel";
+      sel.style.marginTop = "4px";
+      sheetSelectorWrap.innerHTML = "<label class='small'>Hoja:</label> ";
+      sheetSelectorWrap.appendChild(sel);
+      sheetNames.forEach(s => {
+        const o = document.createElement("option");
+        o.value = s;
+        o.textContent = s;
+        sel.appendChild(o);
+      });
+      sel.addEventListener("change", () => loadSheetFromWorkbook(sel.value));
+      loadSheetFromWorkbook(sheetNames[0]);
+    } else {
+      sheetSelectorWrap.innerHTML = "";
+      loadSheetFromWorkbook(sheetNames[0]);
+    }
+  } else {
+    alert("Formato no soportado. Usa .csv o .xlsx/.xls");
+  }
+});
+
+function loadSheetFromWorkbook(sheetName) {
+  const wb = workbookGlobal;
+  const ws = wb.Sheets[sheetName];
+  const arr = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+  // Limpia encabezados con espacios invisibles
+  rawRows = arr.map(row => {
+    const out = {};
+    Object.keys(row).forEach(k => out[String(k).trim()] = row[k]);
+    return out;
+  });
+
+  headers = rawRows[0] ? Object.keys(rawRows[0]) : [];
+  currentSheetName = sheetName;
+  renderPreview();
+}
+
+function renderPreview() {
+  previewHead.innerHTML = "";
+  autoConfig = null;
+  if (!rawRows || !headers.length) return;
+  const first = rawRows[0] || {};
+  const keys = headers;
+  const tbl = document.createElement("table");
+  const thead = document.createElement("thead");
+  const thr = document.createElement("tr");
+  keys.slice(0,8).forEach(k => {
+    const th = document.createElement("th");
+    th.textContent = k;
+    thr.appendChild(th);
+  });
+  thead.appendChild(thr);
+  tbl.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  const tr = document.createElement("tr");
+  keys.slice(0,8).forEach(k => {
+    const td = document.createElement("td");
+    td.textContent = first[k];
+    tr.appendChild(td);
+  });
+  tbody.appendChild(tr);
+  tbl.appendChild(tbody);
+  previewHead.appendChild(tbl);
+  autoDetectColumns(keys);
+}
+
+function autoDetectColumns(keys) {
+  const norm = (x) => String(x).toLowerCase().trim();
+  const pickFirst = (cands) => {
+    for (const c of cands) {
+      const found = keys.find(k => norm(k) === norm(c));
+      if (found) return found;
+    }
+    return "";
+  };
+  const brandGuess   = pickFirst(["marca","brand","make"]);
+  const modelGuess   = pickFirst(["modelo","model"]);
+  const versionGuess = pickFirst(["version","versión","trim","variante","version ","versión "]);
+  const segmentGuess = pickFirst(["segmento","segment","clase","categoria","categoría"]);
+  autoConfig = {
+    brand:   brandGuess   || null,
+    model:   modelGuess   || null,
+    version: versionGuess || null,
+    segment: segmentGuess || null
+  };
+}
+
+/* ------------------ Transformación ancho->largo ------------------ */
+function tidy_data(rows, headersList, config) {
+  const month_cols = detect_month_columns(headersList);
+  if (!month_cols.length)
+    throw new Error("No se detectaron columnas de meses. Revisa encabezados (Ene..Dic, Jan..Dec, 2025-01, etc.).");
+
+  if (!config || !config.model) {
+    throw new Error("No se pudo detectar automáticamente la columna de MODELO.");
+  }
+
+  const long = [];
+  for (const r of rows) {
+    for (const c of month_cols) {
+      let val = r[c];
+      if (val === null || val === undefined || val === "") val = 0;
+      const num = Number(String(val).replace(/\s/g, '').replace(/,/g,'')) || 0;
+      const mes = parse_month_label(c);
+      long.push({
+        Marca:    config.brand   ? (r[config.brand] || null)   : null,
+        Modelo:   config.model   ? r[config.model]   : null,
+        Version:  config.version ? String(r[config.version] ?? '').trim() : null,
+        SegmentoRaw: config.segment ? r[config.segment] : null,
+        SegmentoSUV: normalizeSegment(config.segment ? r[config.segment] : null),
+        Mes: mes,
+        Unidades: num
+      });
+    }
+  }
+  const filtered = long.filter(x => x.Modelo != null && x.Modelo !== "" && x.Mes instanceof Date);
+  const monthsSorted = Array.from(new Set(filtered.map(x => x.Mes.getTime())))
+    .map(t=>new Date(t))
+    .sort((a,b)=>a-b);
+  return { df_long: filtered, months_sorted: monthsSorted };
+}
+
+/* ------------------ Cálculos ------------------ */
+function compute_metrics(df_long) {
+  const d = df_long.map(r => ({ ...r, Unidades: Number(r.Unidades) || 0 }));
+  const allowed = ["B","C","D","E"];
+  const d_suv = d.filter(r => allowed.includes(r.SegmentoSUV));
+
+  d_suv.sort((a,b) => {
+    if ((a.Modelo||'') !== (b.Modelo||'') ) return String(a.Modelo||'').localeCompare(String(b.Modelo||''));
+    if ((a.Version||'') !== (b.Version||'')) return String(a.Version||'').localeCompare(String(b.Version||''));
+    return a.Mes - b.Mes;
+  });
+
+  const groupKey = r => `${r.SegmentoSUV}||${r.Marca||''}||${r.Modelo||''}||${r.Version||''}`;
+  const groups = {};
+  d_suv.forEach(r => {
+    const k = groupKey(r);
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(r);
+  });
+
+  const detail = [];
+  for (const k in groups) {
+    const arr = groups[k].slice().sort((x,y)=>x.Mes-y.Mes);
+    for (let i=0;i<arr.length;i++) {
+      const prev  = i>0 ? arr[i-1].Unidades : null;
+      const delta = prev === null ? null : arr[i].Unidades - prev;
+      const mom   = (prev === null || prev === 0) ? null : (arr[i].Unidades / prev) - 1;
+      detail.push({ ...arr[i], Unidades_prev: prev, Delta: delta, MoM_pct: mom });
+    }
+  }
+
+  const denomSegMes = {};
+  detail.forEach(r => {
+    const key = `${r.SegmentoSUV}||${r.Mes.getTime()}`;
+    denomSegMes[key] = (denomSegMes[key] || 0) + r.Unidades;
+  });
+  const detail_share_seg = detail.map(r => ({
+    ...r,
+    Share_Segmento: denomSegMes[`${r.SegmentoSUV}||${r.Mes.getTime()}`]
+      ? r.Unidades / denomSegMes[`${r.SegmentoSUV}||${r.Mes.getTime()}`]
+      : null
+  }));
+
+  const denomModelMes = {};
+  detail_share_seg.forEach(r => {
+    const key = `${r.SegmentoSUV}||${r.Modelo}||${r.Mes.getTime()}`;
+    denomModelMes[key] = (denomModelMes[key] || 0) + r.Unidades;
+  });
+  const detail_final = detail_share_seg.map(r => ({
+    ...r,
+    Share_Modelo: denomModelMes[`${r.SegmentoSUV}||${r.Modelo}||${r.Mes.getTime()}`]
+      ? r.Unidades / denomModelMes[`${r.SegmentoSUV}||${r.Modelo}||${r.Mes.getTime()}`]
+      : null
+  }));
+
+  function aggregate(rows, keys) {
+    const map = {};
+    rows.forEach(r => {
+      const k = keys.map(k=> (r[k] instanceof Date ? r[k].getTime() : (r[k]===null? '__NULL__':String(r[k])))).join('||');
+      if (!map[k]) {
+        map[k] = { keys: keys.map(kk => r[kk]), Unidades:0, Mes: r.Mes };
+      }
+      map[k].Unidades += r.Unidades;
+    });
+    const out = [];
+    for (const k in map) {
+      const entry = map[k];
+      const rec = {};
+      keys.forEach((kk,i)=> rec[kk] = entry.keys[i]);
+      rec.Unidades = entry.Unidades;
+      if (keys.includes('Mes')) rec.Mes = entry.Mes;
+      out.push(rec);
+    }
+    return out;
+  }
+
+  const summary_segment = aggregate(detail_final, ['SegmentoSUV','Mes']);
+  const summary_brand   = aggregate(detail_final, ['SegmentoSUV','Marca','Mes']);
+  const summary_model   = aggregate(detail_final, ['SegmentoSUV','Marca','Modelo','Mes']);
+
+  const months = Array.from(new Set(detail_final.map(r => r.Mes.getTime()))).sort();
+  const last_month = months.length ? new Date(months[months.length - 1]) : null;
+  const prev_month = last_month ? new Date(new Date(last_month).setMonth(last_month.getMonth() - 1)) : null;
+
+  let top_movers = [];
+  if (last_month) {
+    const lastRows = detail_final.filter(r =>
+      r.Mes.getTime() === last_month.getTime() &&
+      (!r.Version || r.Version === null || String(r.Version).trim() === '')
+    );
+    if (lastRows.length === 0) {
+      const tmp = {};
+      detail_final.forEach(r => {
+        if (r.Mes.getTime() === last_month.getTime()) {
+          const key = `${r.SegmentoSUV}||${r.Marca||''}||${r.Modelo||''}`;
+          if (!tmp[key]) tmp[key] = { SegmentoSUV: r.SegmentoSUV, Marca: r.Marca, Modelo: r.Modelo, Unidades:0 };
+          tmp[key].Unidades += r.Unidades;
+        }
+      });
+      const prevTmp = {};
+      detail_final.forEach(r => {
+        if (prev_month && r.Mes.getTime() === prev_month.getTime()) {
+          const key = `${r.SegmentoSUV}||${r.Marca||''}||${r.Modelo||''}`;
+          prevTmp[key] = (prevTmp[key] || 0) + r.Unidades;
+        }
+      });
+      const arr = Object.values(tmp).map(it => {
+        const key = `${it.SegmentoSUV}||${it.Marca||''}||${it.Modelo||''}`;
+        const prev = prevTmp[key] || 0;
+        const mom = prev === 0 ? null : (it.Unidades / prev) - 1;
+        return { ...it, Unidades_prev: prev, MoM_pct: mom };
+      });
+      top_movers = arr.sort((a,b)=> (b.MoM_pct || -Infinity) - (a.MoM_pct || -Infinity)).slice(0,15);
+    } else {
+      top_movers = lastRows.slice().sort((a,b)=> (b.MoM_pct || -Infinity) - (a.MoM_pct || -Infinity)).slice(0,15);
+    }
+  }
+
+  return {
+    detail: detail_final,
+    summary_segment,
+    summary_brand,
+    summary_model,
+    top_movers,
+    last_month,
+    prev_month
+  };
+}
+
+/* ------------------ Procesar y filtros ------------------ */
+processBtn.addEventListener("click", () => {
+  try {
+    if (!rawRows || !headers.length) {
+      alert("Sube un archivo primero.");
+      return;
+    }
+    if (!autoConfig || !autoConfig.model) {
+      alert("No pude detectar la columna de MODELO. Cambia los encabezados (por ejemplo 'Modelo').");
+      return;
+    }
+    const { df_long, months_sorted } = tidy_data(rawRows, headers, autoConfig);
+    window.__df_long_all = df_long;
+    window.__months = months_sorted;
+
+    buildBrandColorMap(df_long);
+
+    const marcas = Array.from(new Set(df_long.map(r => r.Marca).filter(Boolean))).sort();
+    const marcasSelect = document.getElementById("marcaFilter");
+    marcasSelect.innerHTML = "";
+    marcas.forEach(m => {
+      const o=document.createElement("option");
+      o.value=m;
+      o.textContent=m;
+      marcasSelect.appendChild(o);
+    });
+
+    const modelos = Array.from(new Set(df_long.map(r => r.Modelo).filter(Boolean))).sort();
+    const modSel = document.getElementById("modeloFilter");
+    modSel.innerHTML = "";
+    modelos.forEach(m => {
+      const o=document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      o.selected = true;
+      modSel.appendChild(o);
+    });
+
+    applyFiltersAndRender();
+    document.getElementById("main").classList.remove("hidden");
+  } catch (e) {
+    alert("Error preparando datos: " + e.message);
+    console.error(e);
+  }
+});
+
+document.getElementById("segFilter").addEventListener("change", applyFiltersAndRender);
+document.getElementById("marcaFilter").addEventListener("change", applyFiltersAndRender);
+document.getElementById("modeloFilter").addEventListener("change", applyFiltersAndRender);
+
+function applyFiltersAndRender() {
+  if (!window.__df_long_all) return;
+  const segs = Array.from(document.getElementById("segFilter").selectedOptions).map(o=>o.value);
+  const marcas = Array.from(document.getElementById("marcaFilter").selectedOptions).map(o=>o.value);
+  const modelos = Array.from(document.getElementById("modeloFilter").selectedOptions).map(o=>o.value);
+
+  let dflt = (window.__df_long_all || []).filter(r => segs.includes(r.SegmentoSUV));
+  if (modelos.length) dflt = dflt.filter(r => modelos.includes(r.Modelo));
+  if (marcas.length) dflt = dflt.filter(r => marcas.includes(r.Marca));
+
+  window.__df_filtered = dflt;
+  const results = compute_metrics(dflt);
+  window.__results = results;
+  renderAllFromResults(results);
+}
+
+/* ------------------ Renderizado ------------------ */
+function renderAllFromResults(results) {
+  renderKpis(results);
+  renderSalesByMonth(results);
+  renderTopModelsLast(results);
+  renderMoM();
+  renderMix(results);
+  renderDetail(results);
+  renderCompetitors(results);
+  renderVolvoBenchmark(results);
+  renderInsights(results);
+}
+
+function renderKpis(results) {
+  const summary_segment = results.summary_segment || [];
+  const totalsByMonth = {};
+  summary_segment.forEach(r => {
+    const t = r.Mes ? r.Mes.getTime() : null;
+    totalsByMonth[t] = (totalsByMonth[t] || 0) + r.Unidades;
+  });
+  const months = Object.keys(totalsByMonth).map(k=>Number(k)).sort();
+  const last = months.length ? months[months.length-1] : null;
+  const prev = last ? new Date(new Date(last).setMonth(new Date(last).getMonth()-1)).getTime() : null;
+  const lastUnits = last ? totalsByMonth[last] || 0 : 0;
+  const prevUnits = (prev && totalsByMonth[prev] !== undefined) ? totalsByMonth[prev] : NaN;
+  const delta = isNaN(prevUnits) ? NaN : lastUnits - prevUnits;
+  const mom = isNaN(prevUnits) || prevUnits === 0 ? NaN : (lastUnits / prevUnits) - 1;
+  document.getElementById("kpiUnits").textContent = last ? Number(lastUnits).toLocaleString() : "—";
+  document.getElementById("kpiDelta").textContent = isNaN(delta) ? "—" : Number(delta).toLocaleString();
+  document.getElementById("kpiMoM").textContent = isNaN(mom) ? "N/A" : (mom*100).toFixed(1) + "%";
+}
+
+/* Ventas por mes */
+function renderSalesByMonth(results) {
+  const arr = results.summary_segment || [];
+  const div = document.getElementById("chart_sales_by_month");
+  if (!arr.length) { div.innerHTML = "<div class='small'>No hay datos.</div>"; return; }
+
+  const segs = Array.from(new Set(arr.map(r=>r.SegmentoSUV))).sort();
+  const months = Array.from(new Set(arr.map(r=> r.Mes.getTime()))).sort().map(t=>new Date(t));
+  const ticktext = months.map(m => formatMonthLabel(m));
+
+  const traces = segs.map(seg => {
+    const y = months.map(m => {
+      const rec = arr.find(r => r.SegmentoSUV === seg && r.Mes.getTime() === m.getTime());
+      return rec ? rec.Unidades : 0;
+    });
+    return {
+      x: months, y,
+      name: seg,
+      type: 'bar',
+      text: y.map(v => (v > 0 ? Number(v).toLocaleString() : "")),
+      textposition: 'inside',
+      insidetextanchor: 'middle',
+      hovertemplate: `${seg}<br>%{x|%b %y}: %{y:,}<extra></extra>`
+    };
+  });
+
+  Plotly.newPlot('chart_sales_by_month', traces, {
+    barmode:'stack',
+    showlegend:true,
+    xaxis:{ type:'date', tickvals: months, ticktext, showgrid:false, zeroline:false, showline:false, ticks:'', ticklen:0 },
+    yaxis:{ showticklabels:false, showgrid:false, zeroline:false, showline:false, ticks:'', ticklen:0 },
+    margin:{t:10,b:40,l:10,r:10},
+    paper_bgcolor:'rgba(0,0,0,0)',
+    plot_bgcolor:'rgba(0,0,0,0)'
+  }, {responsive:true, displayModeBar:false});
+}
+
+function renderTopModelsLast(results) {
+  const div = document.getElementById("topModelsLast");
+  div.innerHTML = "";
+  const last_month = results.last_month;
+  if (!last_month) { div.innerHTML = "<div class='small'>No se detectó último mes.</div>"; return; }
+  const summary_model = results.summary_model || [];
+  const last = summary_model.filter(r => r.Mes && r.Mes.getTime() === last_month.getTime());
+  if (!last.length) { div.innerHTML = "<div class='small'>No hay datos del último mes para modelos.</div>"; return; }
+  const top = last.sort((a,b)=>b.Unidades - a.Unidades).slice(0,20);
+  const tbl = document.createElement("table");
+  tbl.innerHTML = "<thead><tr><th>Modelo</th><th>Marca</th><th>Segmento</th><th>Unidades</th></tr></thead>";
+  const tbody = document.createElement("tbody");
+  top.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.Modelo}</td><td>${r.Marca||''}</td><td>${r.SegmentoSUV||''}</td><td>${Number(r.Unidades).toLocaleString()}</td>`;
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  div.appendChild(tbl);
+}
+
+/* MoM con heatmap semáforo + filtro por marca */
+function renderMoM() {
+  const results = window.__results || {};
+  const detailAll = results.detail || [];
+  const div = document.getElementById("chart_mom_heatmap");
+  const brandSel = document.getElementById("heatmapBrand");
+
+  if (!detailAll.length) { div.innerHTML = "<div class='small'>No hay datos.</div>"; return; }
+
+  if (brandSel) {
+    const brands = Array.from(new Set(detailAll.map(r => r.Marca || "(Sin marca)"))).sort();
+    const prevVal = brandSel.value;
+    brandSel.innerHTML = "<option value=''>Todas las marcas</option>";
+    brands.forEach(b => {
+      const opt = document.createElement("option");
+      opt.value = b; opt.textContent = b;
+      brandSel.appendChild(opt);
+    });
+    if (prevVal && brands.includes(prevVal)) brandSel.value = prevVal;
+
+    if (!brandSel.__listenerAdded) {
+      brandSel.addEventListener("change", () => renderMoM());
+      brandSel.__listenerAdded = true;
+    }
+  }
+
+  const selectedBrand = brandSel && brandSel.value ? brandSel.value : null;
+  const detail = selectedBrand ? detailAll.filter(r => (r.Marca || "(Sin marca)") === selectedBrand) : detailAll;
+
+  if (!detail.length) { div.innerHTML = "<div class='small'>No hay datos para la marca seleccionada.</div>"; return; }
+
+  const monthKeys = Array.from(new Set(detail.map(r=> r.Mes.getTime()))).sort();
+  const months = monthKeys.map(t=>new Date(t));
+  const rowKeys = Array.from(new Set(detail.map(r => `${r.Marca||''}||${r.Modelo||''}`))).slice(0,200);
+
+  const z = rowKeys.map(rk => monthKeys.map(m => {
+    const recs = detail.filter(r => (`${r.Marca||''}||${r.Modelo||''}`) === rk && r.Mes.getTime() === m);
+    if (!recs.length) return null;
+    const mean = recs.reduce((a,b)=>a+(b.MoM_pct||0),0)/recs.length;
+    return mean;
+  }));
+
+  const y = rowKeys.map(rk => {
+    const parts = rk.split("||");
+    return selectedBrand ? (parts[1] || parts[0]) : `${parts[0]} - ${parts[1]}`;
+  });
+
+  const totals = monthKeys.map(m => detail.filter(r => r.Mes.getTime() === m).reduce((s,r)=>s+r.Unidades,0));
+  const ticktext = months.map((d,i) => formatMonthLabel(d) + "<br>" + totals[i].toLocaleString());
+
+  Plotly.newPlot('chart_mom_heatmap', [{
+    z, x: months, y,
+    type:'heatmap',
+    colorscale: [[0,'rgb(220,0,0)'],[0.5,'rgb(255,230,0)'],[1,'rgb(0,150,0)']],
+    zmin:-1, zmax:1, zmid:0
+  }], {
+    title: selectedBrand ? `Heatmap MoM % por Modelo — ${selectedBrand}` : 'Heatmap MoM % por Modelo (todas las marcas)',
+    height:420,
+    xaxis:{ tickvals: months, ticktext }
+  }, {responsive:true, displayModeBar:false});
+
+  const tmDiv = document.getElementById("topMovers");
+  tmDiv.innerHTML = "<h4>Top movers (mayor MoM % último mes)</h4>";
+  const top = results.top_movers || [];
+  if (!top.length) { tmDiv.innerHTML += "<div class='small'>No es posible calcular Top movers (faltan dos meses consecutivos).</div>"; return; }
+  const tbl = document.createElement("table");
+  tbl.innerHTML = "<thead><tr><th>Segmento</th><th>Marca</th><th>Modelo</th><th>Unidades</th><th>MoM %</th></tr></thead>";
+  const tbody = document.createElement("tbody");
+  top.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.SegmentoSUV||''}</td><td>${r.Marca||''}</td><td>${r.Modelo||''}</td><td>${Number(r.Unidades).toLocaleString()}</td><td>${r.MoM_pct===null?'N/A':(r.MoM_pct*100).toFixed(1)+'%'}</td>`;
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  tmDiv.appendChild(tbl);
+}
+
+/* Mix y versiones */
+function renderMix(results) {
+  const detail = results.detail || [];
+  const last_month = results.last_month;
+  const div = document.getElementById("mixSegmentChart");
+  if (!last_month) { div.innerHTML = "<div class='small'>No hay último mes definido.</div>"; return; }
+  const segMonth = detail.filter(r => r.Mes.getTime() === last_month.getTime());
+  const map = {};
+  segMonth.forEach(r => {
+    const key = `${r.SegmentoSUV}||${r.Marca||"(Sin marca)"}||${r.Modelo}`;
+    if (!map[key]) map[key] = { SegmentoSUV:r.SegmentoSUV, Marca:r.Marca||"(Sin marca)", Modelo:r.Modelo, Unidades:0 };
+    map[key].Unidades += r.Unidades;
+  });
+  const by = Object.values(map);
+  const segs = Array.from(new Set(by.map(r=>r.SegmentoSUV)));
+  const marcas = Array.from(new Set(by.map(r=>r.Marca)));
+
+  const traces = marcas.map(marca => ({
+    x: segs,
+    y: segs.map(seg => {
+      const tot = by.filter(r=>r.SegmentoSUV===seg).reduce((s,a)=>s+a.Unidades,0);
+      const rec = by.find(r=>r.SegmentoSUV===seg && r.Marca===marca);
+      return tot===0 ? 0 : (rec ? rec.Unidades/tot : 0);
+    }),
+    name: marca,
+    type:'bar',
+    marker:{ color: getBrandColor(marca) }
+  }));
+
+  Plotly.newPlot('mixSegmentChart', traces, { barmode:'stack', title:'Participación por segmento (último mes)', yaxis:{tickformat:',.0%'} }, {responsive:true, displayModeBar:false});
+
+  const modelosDisp = Array.from(new Set(detail.map(r=>r.Modelo).filter(Boolean))).sort();
+  const sel = document.getElementById("modelForVersions");
+  sel.innerHTML = "";
+  modelosDisp.forEach(m => { const o=document.createElement("option"); o.value=m; o.textContent=m; sel.appendChild(o); });
+  const periodSel = document.getElementById("versionsPeriod");
+  const getPeriod = () => (periodSel && periodSel.value) ? periodSel.value : "last";
+
+  sel.addEventListener("change", () => renderVersionsPie(detail, last_month, sel.value, getPeriod()));
+  if (periodSel && !periodSel.__listenerAdded) {
+    periodSel.addEventListener("change", () => renderVersionsPie(detail, last_month, sel.value, getPeriod()));
+    periodSel.__listenerAdded = true;
+  }
+  if (modelosDisp.length) { sel.value = modelosDisp[0]; renderVersionsPie(detail, last_month, modelosDisp[0], getPeriod()); }
+}
+
+function renderVersionsPie(detail, last_month, modelo, period="last") {
+  const divId = "versionsPie";
+  const div = document.getElementById(divId);
+  if (!div) return;
+
+  if (!detail || !detail.length || !modelo) { div.innerHTML = "<div class='small'>No hay datos suficientes para mostrar versiones.</div>"; return; }
+
+  const clean = (v) => (v === null || v === undefined || String(v).trim() === "") ? "(Sin versión)" : String(v).trim();
+  let rows = detail.filter(r => r.Modelo === modelo);
+  if (period === "last") {
+    if (!last_month) { div.innerHTML = "<div class='small'>No se detectó el último mes.</div>"; return; }
+    rows = rows.filter(r => r.Mes && r.Mes.getTime() === last_month.getTime());
+  }
+
+  const byVer = {};
+  rows.forEach(r => { const ver = clean(r.Version); byVer[ver] = (byVer[ver]||0) + (Number(r.Unidades)||0); });
+
+  let versions = Object.keys(byVer).map(v => ({ Version:v, Unidades:byVer[v] })).filter(v => v.Unidades>0);
+  if (!versions.length) {
+    const msg = period === "ytd" ? `No hay unidades > 0 para <b>${modelo}</b> en el acumulado (YTD).` : `No hay unidades > 0 para <b>${modelo}</b> en el último mes.`;
+    div.innerHTML = `<div class='small'>${msg}</div>`; return;
+  }
+
+  versions.sort((a,b)=>b.Unidades-a.Unidades);
+  const total = versions.reduce((s,v)=>s+v.Unidades,0);
+
+  const y = versions.map(v=>v.Version);
+  const x = versions.map(v=>v.Unidades);
+
+  const rowAny = detail.find(r => r.Modelo === modelo);
+  const baseColor = rowAny && rowAny.Marca ? getBrandColor(rowAny.Marca) : "#4c72b0";
+  const colors = generateShades(baseColor, versions.length);
+  const titleSuffix = (period === "ytd") ? " (YTD)" : "";
+
+  Plotly.newPlot(divId, [{
+    type:"bar", x, y, orientation:"h",
+    marker:{ color: colors },
+    text: x.map(v => `${Number(v).toLocaleString()}  ·  ${(total ? (v/total*100) : 0).toFixed(1)}%`),
+    textposition:"auto",
+    hovertemplate:"%{y}<br>%{x:,} unidades<br>%{customdata:.1f}%<extra></extra>",
+    customdata: x.map(v => total ? (v/total*100) : 0)
+  }], {
+    title:`Mix de versiones de ${modelo}${titleSuffix} (todas las versiones)`,
+    margin:{ t:60, b:20, l:320, r:20 },
+    xaxis:{ showgrid:false, zeroline:false, showline:false, showticklabels:false, ticks:"", ticklen:0 },
+    yaxis:{ showgrid:false, zeroline:false, showline:false, automargin:true },
+    paper_bgcolor:"rgba(0,0,0,0)",
+    plot_bgcolor:"rgba(0,0,0,0)",
+    showlegend:false
+  }, {responsive:true, displayModeBar:false});
+}
+
+/* Detalle modelo / versión */
+function renderDetail(results) {
+  const summary_model = results.summary_model || [];
+  const models = Array.from(new Set(summary_model.map(r=>r.Modelo).filter(Boolean))).sort();
+  const sel = document.getElementById("modelEvolution");
+  sel.innerHTML = "";
+  models.forEach(m => { const o=document.createElement("option"); o.value=m; o.textContent=m; sel.appendChild(o); });
+  sel.addEventListener("change", () => drawModelEvolution(results, sel.value));
+  if (models.length) { sel.value = models[0]; drawModelEvolution(results, models[0]); }
+}
+
+function drawModelEvolution(results, modelSel) {
+  const summary_model = results.summary_model || [];
+  const dfm = summary_model.filter(r => r.Modelo === modelSel);
+
+  const totalsMap = {};
+  dfm.forEach(r => { const t=r.Mes.getTime(); totalsMap[t]=(totalsMap[t]||0)+(Number(r.Unidades)||0); });
+  const monthKeys = Object.keys(totalsMap).map(k=>Number(k)).sort((a,b)=>a-b);
+  const months = monthKeys.map(t=>new Date(t));
+  const totals = monthKeys.map(k => totalsMap[k] || 0);
+
+  Plotly.newPlot('evolModel', [{
+    x: months, y: totals,
+    type:'scatter', mode:'lines+markers+text',
+    name:'Unidades',
+    text: totals.map(v => v>0 ? Number(v).toLocaleString() : ""),
+    textposition:'top center',
+    hovertemplate:'%{x|%b %y}: %{y:,}<extra></extra>'
+  }], {
+    title:`Evolución ventas: ${modelSel}`,
+    xaxis:{ tickvals:months, ticktext:months.map(d=>formatMonthLabel(d)), showgrid:false, zeroline:false, showline:false, ticks:'', ticklen:0, showticklabels:true },
+    yaxis:{ visible:false, showgrid:false, zeroline:false, showline:false, ticks:'', ticklen:0, showticklabels:false },
+    margin:{t:50,b:45,l:20,r:20},
+    paper_bgcolor:'rgba(0,0,0,0)',
+    plot_bgcolor:'rgba(0,0,0,0)'
+  }, {responsive:true, displayModeBar:false});
+
+  const container = document.getElementById("evolVersionsArea");
+  container.innerHTML = "";
+
+  const allowed = ["B","C","D","E"];
+  const dfBase = (window.__df_filtered || []).filter(r => r && r.Modelo === modelSel && allowed.includes(r.SegmentoSUV));
+
+  const versions = Array.from(new Set(dfBase.map(r => (r.Version ?? "").toString().trim()).filter(v => v.length))).sort();
+  if (!modelSel || !versions.length) { container.innerHTML = "<div class='small'>No hay versiones disponibles para este modelo.</div>"; return; }
+
+  const row = document.createElement("div");
+  row.style.display="flex"; row.style.gap="10px"; row.style.alignItems="center"; row.style.flexWrap="wrap"; row.style.marginBottom="8px";
+
+  const lab = document.createElement("label");
+  lab.className="small"; lab.textContent="Elige una versión:";
+
+  const sel = document.createElement("select");
+  sel.id="versionEvolutionSelect"; sel.style.minWidth="380px";
+  versions.forEach(v => { const o=document.createElement("option"); o.value=v; o.textContent=v; sel.appendChild(o); });
+
+  row.appendChild(lab); row.appendChild(sel);
+  container.appendChild(row);
+
+  const chart = document.createElement("div");
+  chart.style.height="360px";
+  chart.className="chart";
+  container.appendChild(chart);
+
+  function plotSelectedVersion() {
+    const vsel = sel.value;
+    const dfv = dfBase.filter(r => ((r.Version ?? "").toString().trim()) === vsel);
+
+    const monthKeys = Array.from(new Set(dfv.map(r => r.Mes.getTime()))).sort((a,b)=>a-b);
+    const monthsV = monthKeys.map(t => new Date(t));
+    const y = monthKeys.map(m => dfv.filter(r => r.Mes.getTime() === m).reduce((s,r)=>s+(Number(r.Unidades)||0),0));
+    const ticktextV = monthsV.map(d => formatMonthLabel(d));
+
+    Plotly.newPlot(chart, [{
+      x: monthsV, y,
+      name: vsel,
+      type:"scatter",
+      mode:"lines+markers+text",
+      text: y.map(v => (v>0 ? Number(v).toLocaleString() : "")),
+      textposition:"top center",
+      hovertemplate: `${vsel}<br>%{x|%b %y}: %{y:,}<extra></extra>`
+    }], {
+      title: `Evolución versión: ${modelSel} — ${vsel}`,
+      xaxis:{ tickvals:monthsV, ticktext:ticktextV, showgrid:false, zeroline:false, showline:false, ticks:"", ticklen:0 },
+      yaxis:{ showgrid:false, zeroline:false, showline:false, ticks:"", ticklen:0, showticklabels:false },
+      margin:{ t:50, b:60, l:20, r:10 },
+      paper_bgcolor:"rgba(0,0,0,0)",
+      plot_bgcolor:"rgba(0,0,0,0)"
+    }, {responsive:true, displayModeBar:false});
+  }
+
+  sel.addEventListener("change", plotSelectedVersion);
+  plotSelectedVersion();
+}
+
+/* Volvo vs competidores (TOTAL YTD, ignora segmentos y filtros) */
+function renderCompetitors(results) {
+  const compsSelect = document.getElementById("competitors");
+  if (!compsSelect) return;
+
+  const base = (window.__df_long_all || []).map(r => ({ ...r, Marca: r.Marca || "(Sin marca)", Unidades: Number(r.Unidades) || 0 }));
+
+  const marcas = Array.from(new Set(base.map(r => r.Marca)))
+    .sort((a,b)=> String(a).localeCompare(String(b)))
+    .filter(m => String(m).toLowerCase() !== "volvo");
+
+  const prevChosen = Array.from(compsSelect.selectedOptions).map(o=>o.value);
+  compsSelect.innerHTML = "";
+  marcas.forEach(m => {
+    const o = document.createElement("option");
+    o.value = m;
+    o.textContent = m;
+    if (prevChosen.includes(m)) o.selected = true;
+    compsSelect.appendChild(o);
+  });
+
+  if (!compsSelect.__listenerAdded) {
+    compsSelect.addEventListener("change", () => drawCompetitorChartYTD());
+    compsSelect.__listenerAdded = true;
+  }
+
+  drawCompetitorChartYTD();
+}
+
+function drawCompetitorChartYTD() {
+  const div = document.getElementById("compChart");
+  if (!div) return;
+
+  const compsSelect = document.getElementById("competitors");
+  const chosen = compsSelect ? Array.from(compsSelect.selectedOptions).map(o=>o.value) : [];
+
+  const baseAll = (window.__df_long_all || []).map(r => ({ ...r, Marca: r.Marca || "(Sin marca)", Unidades: Number(r.Unidades) || 0 }));
+
+  const totalsAll = {};
+  baseAll.forEach(r => { totalsAll[r.Marca] = (totalsAll[r.Marca] || 0) + r.Unidades; });
+
+  let competitors = [];
+  if (chosen.length) competitors = chosen.filter(b => String(b).toLowerCase() !== "volvo");
+  else competitors = Object.keys(totalsAll).filter(b => String(b).toLowerCase() !== "volvo").sort((a,b)=> (totalsAll[b]||0)-(totalsAll[a]||0)).slice(0,6);
+
+  const brandsToUse = ["Volvo", ...competitors];
+  const totals = brandsToUse.map(b => {
+    const key = Object.keys(totalsAll).find(k => String(k).toLowerCase() === String(b).toLowerCase());
+    return key ? (totalsAll[key] || 0) : 0;
+  });
+
+  const totalMarket = totals.reduce((s,v)=>s+v,0);
+  const labels = brandsToUse.map((b,i) => {
+    const pct = totalMarket ? (totals[i] / totalMarket * 100) : 0;
+    return `${b} (${pct.toFixed(1)}%)`;
+  });
+
+  Plotly.newPlot(div, [{
+    x: labels, y: totals,
+    type:"bar",
+    text: totals.map(v => v ? Number(v).toLocaleString() : ""),
+    textposition:"outside",
+    hovertemplate:"%{x}<br>%{y:,} unidades YTD<extra></extra>",
+    marker:{ color: brandsToUse.map(b => getBrandColor(b)) }
+  }], {
+    title:"Volvo vs competidores — Total YTD (todas las unidades)",
+    margin:{ t:60, b:80, l:40, r:20 },
+    xaxis:{ tickangle:-25 },
+    yaxis:{ showgrid:true, zeroline:false },
+    paper_bgcolor:"rgba(0,0,0,0)",
+    plot_bgcolor:"rgba(0,0,0,0)"
+  }, {responsive:true, displayModeBar:false});
+
+  const wrap = document.getElementById("compChartTable");
+  if (wrap) {
+    wrap.innerHTML = "";
+    const rows = brandsToUse.map((b,i)=>({ Marca:b, Unidades_YTD:totals[i], Share_pct: totalMarket ? (totals[i]/totalMarket) : 0 }))
+      .sort((a,b)=>b.Unidades_YTD-a.Unidades_YTD);
+
+    const tbl = document.createElement("table");
+    tbl.innerHTML = "<thead><tr><th>Marca</th><th>Unidades YTD</th><th>Share</th></tr></thead>";
+    const tb = document.createElement("tbody");
+    rows.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${r.Marca}</td><td>${Number(r.Unidades_YTD).toLocaleString()}</td><td>${(r.Share_pct*100).toFixed(1)}%</td>`;
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    wrap.appendChild(tbl);
+  }
+}
+
+/* Volvo benchmark */
+function renderVolvoBenchmark(results) {
+  const detail = results.detail || [];
+  const last_month = results.last_month;
+  const volvoDetail = detail.filter(r => (r.Marca||'').toLowerCase() === 'volvo');
+
+  const kpiDiv = document.getElementById("volvoKpis");
+  const totalDiv = document.getElementById("volvoTotalChart");
+  const segModDiv = document.getElementById("volvoSegmentModelChart");
+  const momDiv = document.getElementById("volvoModelMoM");
+  const tableDiv = document.getElementById("volvoTable");
+
+  kpiDiv.innerHTML = "";
+  totalDiv.innerHTML = "";
+  segModDiv.innerHTML = "";
+  momDiv.innerHTML = "";
+  tableDiv.innerHTML = "";
+
+  if (!volvoDetail.length) { totalDiv.innerHTML = "<div class='small'>No se encontraron datos de Volvo en los filtros actuales.</div>"; return; }
+
+  const monthKeys = Array.from(new Set(volvoDetail.map(r => r.Mes.getTime()))).sort();
+  const last = monthKeys.length ? monthKeys[monthKeys.length-1] : null;
+  const prev = last ? new Date(new Date(last).setMonth(new Date(last).getMonth()-1)).getTime() : null;
+
+  const totalByMonth = {};
+  volvoDetail.forEach(r => { const t=r.Mes.getTime(); totalByMonth[t]=(totalByMonth[t]||0)+r.Unidades; });
+
+  const lastUnits = last ? totalByMonth[last] || 0 : 0;
+  const prevUnits = (prev && totalByMonth[prev] !== undefined) ? totalByMonth[prev] : NaN;
+  const delta = isNaN(prevUnits) ? NaN : lastUnits - prevUnits;
+  const mom = isNaN(prevUnits) || prevUnits===0 ? NaN : (lastUnits/prevUnits)-1;
+
+  kpiDiv.innerHTML = `
+    <div class="kpi" style="background:#e6f0ff;border-color:#b0c8ff">
+      <div class="small">Unidades Volvo último mes</div>
+      <div style="font-size:20px">${last ? Number(lastUnits).toLocaleString() : "—"}</div>
+    </div>
+    <div class="kpi" style="background:#e6f0ff;border-color:#b0c8ff">
+      <div class="small">Δ unidades Volvo vs mes previo</div>
+      <div style="font-size:20px">${isNaN(delta) ? "—" : Number(delta).toLocaleString()}</div>
+    </div>
+    <div class="kpi" style="background:#e6f0ff;border-color:#b0c8ff">
+      <div class="small">Crecimiento MoM % Volvo</div>
+      <div style="font-size:20px">${isNaN(mom) ? "N/A" : (mom*100).toFixed(1)+"%"}</div>
+    </div>
+  `;
+
+  const months = monthKeys.map(t=>new Date(t));
+  const totals = monthKeys.map(t => totalByMonth[t] || 0);
+  const ticktext = months.map((d,i) => formatMonthLabel(d) + "<br>" + totals[i].toLocaleString());
+
+  Plotly.newPlot('volvoTotalChart', [{
+    x: months, y: totals, type:'bar',
+    marker:{ color: VOLVO_COLOR_MAIN },
+    name:'Volvo total'
+  }], { title:'Unidades Volvo por mes', xaxis:{ tickvals:months, ticktext } }, {responsive:true, displayModeBar:false});
+
+  if (last_month) {
+    const lastTime = last_month.getTime();
+    const volvoLast = volvoDetail.filter(r => r.Mes.getTime() === lastTime);
+    const map = {};
+    volvoLast.forEach(r => {
+      const key = `${r.SegmentoSUV}||${r.Modelo}`;
+      if (!map[key]) map[key] = { SegmentoSUV:r.SegmentoSUV, Modelo:r.Modelo, Unidades:0 };
+      map[key].Unidades += r.Unidades;
+    });
+    const rows = Object.values(map);
+
+    const byModelTotal = {};
+    rows.forEach(r => { byModelTotal[r.Modelo]=(byModelTotal[r.Modelo]||0)+r.Unidades; });
+    const topModels = Object.entries(byModelTotal).sort((a,b)=>b[1]-a[1]).map(x=>x[0]).slice(0,8);
+    const segments = Array.from(new Set(rows.map(r => r.SegmentoSUV))).sort();
+
+    const allNames = [...topModels, "Otros"];
+    const colors = allNames.map((_,idx)=> VOLVO_PALETTE[idx % VOLVO_PALETTE.length]);
+
+    const traces = allNames.map((modelName,idx) => {
+      const yVals = segments.map(seg => {
+        if (modelName === "Otros") {
+          return rows.filter(r => r.SegmentoSUV===seg && !topModels.includes(r.Modelo)).reduce((s,r)=>s+r.Unidades,0);
+        } else {
+          const rec = rows.find(r => r.SegmentoSUV===seg && r.Modelo===modelName);
+          return rec ? rec.Unidades : 0;
+        }
+      });
+      return { x: segments, y: yVals, name: modelName, type:'bar', marker:{ color: colors[idx] } };
+    });
+
+    Plotly.newPlot('volvoSegmentModelChart', traces, {
+      barmode:'stack',
+      title:'Volvo: mix de modelos por segmento (último mes)',
+      xaxis:{ title:'Segmento SUV' },
+      yaxis:{ title:'Unidades' }
+    }, {responsive:true, displayModeBar:false});
+
+    const lastMonthTime = last_month.getTime();
+    const prevMonthTime = results.prev_month ? results.prev_month.getTime() : null;
+
+    const byModelLast = {};
+    const byModelPrev = {};
+    volvoDetail.forEach(r => {
+      const key = r.Modelo || "(Sin modelo)";
+      if (r.Mes.getTime() === lastMonthTime) byModelLast[key]=(byModelLast[key]||0)+r.Unidades;
+      else if (prevMonthTime && r.Mes.getTime() === prevMonthTime) byModelPrev[key]=(byModelPrev[key]||0)+r.Unidades;
+    });
+
+    const modelNames = Object.keys(byModelLast);
+    const xModels = [], yMoms = [];
+    modelNames.forEach(m => {
+      const prevVal = byModelPrev[m] || 0;
+      if (!prevVal) return;
+      xModels.push(m);
+      yMoms.push(((byModelLast[m]/prevVal)-1)*100);
+    });
+
+    if (xModels.length) {
+      Plotly.newPlot('volvoModelMoM', [{ x:xModels, y:yMoms, type:'bar', marker:{ color: VOLVO_COLOR_MOM } }], {
+        title:'Crecimiento MoM % por modelo Volvo (último mes)',
+        yaxis:{ ticksuffix:'%' }
+      }, {responsive:true, displayModeBar:false});
+    } else {
+      momDiv.innerHTML = "<div class='small'>No se puede calcular MoM por modelo Volvo (falta mes previo).</div>";
+    }
+
+    const tableRows = modelNames.map(m => ({
+      Modelo: m,
+      Unidades: byModelLast[m] || 0,
+      Unidades_prev: byModelPrev[m] || 0,
+      MoM_pct: byModelPrev[m] ? ((byModelLast[m]/byModelPrev[m])-1) : null
+    })).sort((a,b)=>b.Unidades-a.Unidades);
+
+    const tbl = document.createElement("table");
+    tbl.innerHTML = "<thead><tr><th>Modelo Volvo</th><th>Unidades último mes</th><th>Unidades mes previo</th><th>MoM %</th></tr></thead>";
+    const tbody = document.createElement("tbody");
+    tableRows.forEach(r => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${r.Modelo}</td><td>${Number(r.Unidades).toLocaleString()}</td><td>${Number(r.Unidades_prev||0).toLocaleString()}</td><td>${r.MoM_pct===null?'N/A':(r.MoM_pct*100).toFixed(1)+'%'}</td>`;
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    tableDiv.appendChild(tbl);
+  } else {
+    segModDiv.innerHTML = "<div class='small'>No se identificó último mes para armar el benchmark Volvo.</div>";
+  }
+}
+
+/* Insights (placeholder simple para evitar truncado/errores) */
+function renderInsights(results) {
+  const div = document.getElementById("insights");
+  if (!div) return;
+  div.innerHTML = "<h4>Insights automáticos</h4><div class='small'>Carga datos y usa filtros para ver tendencias. (Sección simplificada).</div>";
+}
+
+/* Descargas (placeholder) */
+document.getElementById("downloadExcel").addEventListener("click", () => alert("Descarga Excel: no implementado en esta versión."));
+document.getElementById("downloadCSV").addEventListener("click", () => alert("Descarga CSV: no implementado en esta versión."));
+</script>
+</body>
+</html>
